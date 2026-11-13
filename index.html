@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>おサルのバーチャルバナナ集め</title>
+<meta name="description" content="60秒でバナナを集めまくるタイムアタック！岩を砕いて、ゴールデンバナナで加速しよう。">
+<meta name="theme-color" content="#79b95a">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="icon.png" sizes="512x512" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<!-- OGP / Xカード: og:url と og:image は絶対URLが必要。YOUR_USERNAME / YOUR_REPO を自分のものに置き換える -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="おサルのバーチャルバナナ集め">
+<meta property="og:title" content="おサルのバーチャルバナナ集め">
+<meta property="og:description" content="60秒でバナナを集めまくるタイムアタック！岩を砕いて、ゴールデンバナナで加速しよう。">
+<meta property="og:url" content="https://YOUR_USERNAME.github.io/YOUR_REPO/">
+<meta property="og:image" content="https://YOUR_USERNAME.github.io/YOUR_REPO/ogp.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="おサルのバーチャルバナナ集め">
+<meta name="twitter:description" content="60秒でバナナを集めまくるタイムアタック！岩を砕いて、ゴールデンバナナで加速しよう。">
+<meta name="twitter:image" content="https://YOUR_USERNAME.github.io/YOUR_REPO/ogp.png">
+<style>
+:root{--bg:#1d2b1a;--panel:#2a3b26;--text:#fffbe6;--accent:#ffd23f;--btn:#4a6b3f;--btn-active:#7fae5d}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#141d12;--panel:#1f2c1c}}
+:root[data-theme="dark"]{--bg:#141d12;--panel:#1f2c1c}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;touch-action:none}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;overscroll-behavior:none}
+#app{display:flex;flex-direction:column;height:100dvh;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+#hud{display:flex;justify-content:space-around;padding:8px 6px;background:var(--panel);font-weight:700;font-size:15px}
+#hud div{text-align:center}#hud small{display:block;font-size:11px;opacity:.7}
+#hud b{font-size:20px;color:var(--accent)}
+#mute{border:0;background:none;color:inherit;font-size:20px;padding:0;line-height:1.1;cursor:pointer}
+#wrap{flex:1;position:relative;display:flex;align-items:center;justify-content:center;min-height:0}
+canvas{border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+#overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.6);text-align:center;padding:16px}
+#overlay.hide{display:none}
+#overlay h1{margin:0;font-size:24px;color:var(--accent)}
+#overlay p{margin:0;line-height:1.6;font-size:14px}
+.btn{display:inline-block;padding:12px 26px;border:0;border-radius:28px;background:var(--accent);color:#3a2a00;font-size:17px;font-weight:700;text-decoration:none;cursor:pointer}
+.btn.tw{background:#1d9bf0;color:#fff}
+#zone{flex:none;height:170px;display:flex;align-items:center;justify-content:center}
+#base{position:relative;width:140px;height:140px;border-radius:50%;background:radial-gradient(circle at 50% 38%,#3b5233,#1b2a17);box-shadow:inset 0 6px 12px rgba(0,0,0,.6),0 2px 0 rgba(255,255,255,.12)}
+#knob{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#d7f0b8,#7fae5d 45%,#3d6a2e);box-shadow:0 8px 10px rgba(0,0,0,.55),inset 0 -4px 6px rgba(0,0,0,.35);transition:transform .08s}
+#knob.drag{transition:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="hud">
+    <div><small>残り時間</small><b id="tTime">60</b></div>
+    <div><small>スコア</small><b id="tScore">0</b></div>
+    <div><small>コンボ</small><b id="tCombo">0</b></div>
+    <div><small>音</small><button id="mute">🔊</button></div>
+  </div>
+  <div id="wrap">
+    <canvas id="cv"></canvas>
+    <div id="overlay"></div>
+  </div>
+  <div id="zone"><div id="base"><div id="knob"></div></div></div>
+</div>
+<script>
+(() => {
+'use strict';
+// ===== 定数 =====
+const W = 400, H = 520;            // ゲーム内の論理サイズ
+const GAME_TIME = 60;              // 制限時間(秒)
+const COMBO_WINDOW = 2.5;          // コンボ受付時間(秒)
+const P_R = 16, B_R = 11;          // プレイヤー/バナナの半径
+const BASE_SPEED = 250, ACCEL = 1800, FRICTION = 6; // 速度と慣性(FRICTIONが小さいほどよく滑る)
+const SMASH_SPEED = 225;          // この速さ以上でぶつかると岩を一撃で破壊
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+const overlay = $('overlay');
+
+// ===== 状態 =====
+let state = 'ready', timeLeft, score, combo, lastPick, rocks, bananas, fx, texts, player, speedTimer, speedMode, last, grass;
+const dirs = {up:false, down:false, left:false, right:false};
+const rand = (a, b) => a + Math.random() * (b - a);
+let rockRespawn = []; // 壊れた岩が再出現するまでの残り秒数リスト
+// 岩の種類: soft=壊れやすい(耐久2・一撃に必要な速さが低い)、hard=壊れにくい(耐久6・ゴールデン加速中の全速力でのみ一撃)
+const ROCK = {soft: {hp: 2, smash: SMASH_SPEED * .8}, hard: {hp: 6, smash: SMASH_SPEED * 1.42}};
+const rockProps = () => { const type = Math.random() < .6 ? 'soft' : 'hard'; return {type, hp: ROCK[type].hp, max: ROCK[type].hp}; }; // やわらかい石が6割
+
+// ===== 効果音(Web Audioで合成。外部ファイル不要) =====
+let ac = null, muted = false;
+try { muted = localStorage.getItem('monkeyBananaMute') === '1'; } catch (e) {}
+// スマホはユーザー操作後でないと鳴らせないため、ボタンタップ時に初期化/再開
+function initAudio() {
+  try {
+    if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (ac.state === 'suspended') ac.resume();
+  } catch (e) {}
+}
+// 単音: 周波数をf0→f1にスライドさせたあと音量を減衰
+function tone(f0, f1, dur, type = 'sine', vol = .2, delay = 0) {
+  if (!ac || muted) return;
+  const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+  o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t + dur);
+}
+// ノイズ(岩のヒット・破壊音用)
+function noise(dur, vol = .3, cutoff = 1500) {
+  if (!ac || muted) return;
+  const n = Math.floor(ac.sampleRate * dur), buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const s = ac.createBufferSource(), fl = ac.createBiquadFilter(), g = ac.createGain();
+  fl.type = 'lowpass'; fl.frequency.value = cutoff; g.gain.value = vol;
+  s.buffer = buf; s.connect(fl); fl.connect(g); g.connect(ac.destination); s.start();
+}
+const sfx = {
+  pick: c => tone(600 + Math.min(c, 8) * 70, 1000 + Math.min(c, 8) * 90, .12, 'triangle', .22), // コンボで音程アップ
+  gold: () => [880, 1100, 1320, 1760].forEach((f, i) => tone(f, f * 1.02, .15, 'sine', .2, i * .06)), // キラキラとしたアルペジオ
+  rotten: () => tone(220, 70, .3, 'sawtooth', .18), // 下がっていくブァー音
+  hit: () => { noise(.12, .3, 900); tone(140, 60, .12, 'square', .12); }, // 岩にガツッ
+  smash: () => { noise(.4, .5, 2500); tone(110, 35, .35, 'sawtooth', .25); }, // 岩破壊
+  tick: () => tone(1000, 900, .05, 'square', .08), // 残り10秒のカウント
+  end: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, f, .22, 'triangle', .2, i * .12)),
+  start: () => { tone(440, 440, .1, 'square', .1); tone(880, 880, .15, 'square', .1, .12); }
+};
+// ミュートボタン(設定は保存)
+const muteBtn = $('mute');
+muteBtn.textContent = muted ? '🔇' : '🔊';
+muteBtn.addEventListener('click', () => {
+  initAudio(); muted = !muted; muteBtn.textContent = muted ? '🔇' : '🔊';
+  try { localStorage.setItem('monkeyBananaMute', muted ? '1' : '0'); } catch (e) {}
+});
+
+// ===== 入力: 仮想ボタン(同時押し対応)とキーボード =====
+// 仮想アナログスティック: 倒した方向と角度の大きさ(0〜1)で移動する
+const stick = {x: 0, y: 0}, STICK_R = 50, DEAD = 0.12;
+const zone = $('zone'), base = $('base'), knob = $('knob');
+let stickId = null;
+function moveStick(e) {
+  const r = base.getBoundingClientRect();
+  let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+  const len = Math.hypot(dx, dy);
+  if (len > STICK_R) { dx *= STICK_R / len; dy *= STICK_R / len; } // 可動範囲に制限
+  knob.style.transform = `translate(${dx}px,${dy}px)`;
+  const m = Math.hypot(dx, dy) / STICK_R;
+  if (m < DEAD) { stick.x = 0; stick.y = 0; } else { stick.x = dx / STICK_R; stick.y = dy / STICK_R; }
+}
+function releaseStick() { stickId = null; stick.x = 0; stick.y = 0; knob.classList.remove('drag'); knob.style.transform = ''; }
+zone.addEventListener('pointerdown', e => { if (stickId !== null) return; e.preventDefault(); stickId = e.pointerId; zone.setPointerCapture(e.pointerId); knob.classList.add('drag'); moveStick(e); });
+zone.addEventListener('pointermove', e => { if (e.pointerId === stickId) moveStick(e); });
+['pointerup', 'pointercancel'].forEach(ev => zone.addEventListener(ev, e => { if (e.pointerId === stickId) releaseStick(); }));
+const keyMap = {ArrowUp:'up', w:'up', W:'up', ArrowDown:'down', s:'down', S:'down', ArrowLeft:'left', a:'left', A:'left', ArrowRight:'right', d:'right', D:'right'};
+addEventListener('keydown', e => { if (keyMap[e.key]) { dirs[keyMap[e.key]] = true; e.preventDefault(); } });
+addEventListener('keyup', e => { if (keyMap[e.key]) dirs[keyMap[e.key]] = false; });
+// スクロール・ピンチ防止
+document.addEventListener('touchmove', e => e.preventDefault(), {passive:false});
+document.addEventListener('gesturestart', e => e.preventDefault());
+
+// ===== レスポンシブ: 画面に収まる最大サイズ(最大800px)に拡大縮小 =====
+function resize() {
+  const wrap = $('wrap'), dpr = window.devicePixelRatio || 1;
+  const s = Math.min(wrap.clientWidth / W, wrap.clientHeight / H, 2);
+  cv.style.width = W * s + 'px'; cv.style.height = H * s + 'px';
+  cv.width = W * s * dpr; cv.height = H * s * dpr;
+  ctx.setTransform(s * dpr, 0, 0, s * dpr, 0, 0);
+}
+addEventListener('resize', resize);
+
+// ===== 衝突判定 =====
+// 円と矩形の重なり判定
+function circleRect(x, y, r, rc) {
+  const cx = Math.max(rc.x, Math.min(x, rc.x + rc.w)), cy = Math.max(rc.y, Math.min(y, rc.y + rc.h));
+  return (x - cx) ** 2 + (y - cy) ** 2 < r * r;
+}
+const rockAt = (x, y, r) => rocks.find(rc => circleRect(x, y, r, rc));
+const hitRock = (x, y, r) => !!rockAt(x, y, r);
+
+// ===== ステージ生成 =====
+function makeRocks() {
+  const list = [], n = 3 + Math.floor(Math.random() * 4);
+  for (let t = 0; list.length < n && t < 200; t++) {
+    const w = rand(36, 64), h = rand(32, 58), x = rand(20, W - 20 - w), y = rand(60, H - 140 - h);
+    const ok = list.every(o => x > o.x + o.w + 30 || x + w + 30 < o.x || y > o.y + o.h + 30 || y + h + 30 < o.y);
+    if (ok) list.push({x, y, w, h, seed: Math.random(), ...rockProps(), cd: 0, shake: 0});
+  }
+  return list;
+}
+function randomType() { const r = Math.random(); return r < .7 ? 'normal' : r < .85 ? 'gold' : 'rotten'; }
+// バナナの出現位置(岩・プレイヤー・他バナナを避ける)
+function spawn(b) {
+  for (let t = 0; t < 80; t++) {
+    const x = rand(24, W - 24), y = rand(24, H - 24);
+    if (hitRock(x, y, B_R + 8)) continue;
+    if (Math.hypot(x - player.x, y - player.y) < 60) continue;
+    if (bananas.some(o => o !== b && o.active && Math.hypot(x - o.x, y - o.y) < 34)) continue;
+    Object.assign(b, {x, y, type: randomType(), active: true, ph: rand(0, 6.28), ang: rand(-.6, .6)});
+    return;
+  }
+}
+function newGame() {
+  timeLeft = GAME_TIME; score = 0; combo = 0; lastPick = -99; speedTimer = 0; speedMode = 0;
+  fx = []; texts = [];
+  player = {x: W / 2, y: H - 70, vx: 0, vy: 0, face: 0};
+  rocks = makeRocks(); rockRespawn = [];
+  bananas = Array.from({length: 14}, () => ({active: false, respawn: 0}));
+  bananas.forEach(spawn);
+  grass = Array.from({length: 70}, () => ({x: rand(0, W), y: rand(0, H), s: rand(3, 7)}));
+  state = 'playing'; last = performance.now(); initAudio(); sfx.start();
+  overlay.classList.add('hide');
+}
+
+// ===== 更新処理 =====
+function pickBanana(b) {
+  b.active = false; b.respawn = rand(1, 2.5); // 1〜2.5秒後に再出現
+  const elapsed = GAME_TIME - timeLeft;
+  let pts = 0;
+  if (b.type === 'rotten') {
+    combo = 0; pts = -5; speedTimer = 5; speedMode = -1; sfx.rotten(); // 腐り: コンボ途切れ+減速
+  } else {
+    combo = (elapsed - lastPick <= COMBO_WINDOW) ? combo + 1 : 1;
+    lastPick = elapsed;
+    const mult = Math.min(1 + (combo - 1) * 0.5, 3); // 2連続×1.5, 3連続×2.0 ...
+    pts = Math.round((b.type === 'gold' ? 30 : 10) * mult);
+    if (b.type === 'gold') { speedTimer = 5; speedMode = 1; sfx.gold(); } else sfx.pick(combo); // ゴールデン: 加速
+  }
+  score = Math.max(0, score + pts);
+  // キラッと光るエフェクト
+  const col = b.type === 'rotten' ? '#9acd32' : b.type === 'gold' ? '#fff3a0' : '#ffffff';
+  for (let i = 0; i < 12; i++) { const a = i / 12 * 6.28; fx.push({x: b.x, y: b.y, vx: Math.cos(a) * rand(40, 110), vy: Math.sin(a) * rand(40, 110), life: .5, col}); }
+  texts.push({x: b.x, y: b.y, t: (pts > 0 ? '+' : '') + pts, life: .8, col: pts < 0 ? '#ff7b7b' : '#ffe14d'});
+}
+// 岩にぶつかった時の処理: 全速力(SMASH_SPEED以上)なら一撃で破壊、それ以外は勢いがあれば耐久を1減らす
+// spd=岩に向かう方向の速さ, total=全体の速さ。壊れたらtrueを返す
+function bumpRock(rc, spd, total) {
+  const smash = spd >= 70 && total >= ROCK[rc.type].smash; // 十分な速さで正面からぶつかった(必要速度は岩の種類で変わる)
+  if (!smash && (spd < 70 || rc.cd > 0)) return false; // 弱い接触・連続判定は無視
+  rc.cd = .35; rc.hp = smash ? 0 : rc.hp - 1; rc.shake = .2;
+  if (rc.hp <= 0) sfx.smash(); else sfx.hit();
+  const cx = rc.x + rc.w / 2, cy = rc.y + rc.h / 2, broken = rc.hp <= 0;
+  for (let i = 0; i < (broken ? 16 : 5); i++) fx.push({x: cx + rand(-rc.w / 3, rc.w / 3), y: cy + rand(-rc.h / 3, rc.h / 3), vx: rand(-100, 100), vy: rand(-100, 100), life: .5, col: i % 2 ? '#b8b8b4' : '#77776f'}); // 破片
+  if (broken) { rocks.splice(rocks.indexOf(rc), 1); rockRespawn.push(8); } // 8秒後に別の場所へ再出現
+  return broken;
+}
+// 岩を1つ新しい場所に出す(プレイヤー・バナナ・他の岩を避ける)
+function addRock() {
+  for (let t = 0; t < 60; t++) {
+    const w = rand(36, 64), h = rand(32, 58), x = rand(20, W - 20 - w), y = rand(60, H - 140 - h);
+    const rc = {x, y, w, h, seed: Math.random(), ...rockProps(), cd: 0, shake: 0};
+    const apart = rocks.every(o => x > o.x + o.w + 30 || x + w + 30 < o.x || y > o.y + o.h + 30 || y + h + 30 < o.y);
+    if (apart && !circleRect(player.x, player.y, P_R + 30, rc) && !bananas.some(b => b.active && circleRect(b.x, b.y, B_R + 6, rc))) { rocks.push(rc); return true; }
+  }
+  return false;
+}
+function update(dt) {
+  const prevSec = Math.ceil(timeLeft); timeLeft -= dt;
+  if (timeLeft > 0 && timeLeft < 10 && Math.ceil(timeLeft) < prevSec) sfx.tick(); // 残り10秒は毎秒カチッ
+  if (timeLeft <= 0) { timeLeft = 0; return endGame(); }
+  const elapsed = GAME_TIME - timeLeft;
+  if (combo > 0 && elapsed - lastPick > COMBO_WINDOW) combo = 0; // コンボ切れ
+  // 速度効果の残り時間
+  if (speedTimer > 0) { speedTimer -= dt; if (speedTimer <= 0) speedMode = 0; }
+  const maxV = BASE_SPEED * (speedMode > 0 ? 1.5 : speedMode < 0 ? .6 : 1);
+  // 入力 → 加速(斜めは正規化)
+  let ix = stick.x, iy = stick.y; // スティック入力(大きさ0〜1)
+  if (!ix && !iy) { // スティック未使用時はキーボード
+    ix = (dirs.right ? 1 : 0) - (dirs.left ? 1 : 0); iy = (dirs.down ? 1 : 0) - (dirs.up ? 1 : 0);
+    const len = Math.hypot(ix, iy); if (len) { ix /= len; iy /= len; }
+  }
+  player.vx += ix * ACCEL * dt; player.vy += iy * ACCEL * dt;
+  // 摩擦(慣性: 少し滑って止まる)
+  const f = Math.exp(-FRICTION * dt); player.vx *= f; player.vy *= f;
+  const sp = Math.hypot(player.vx, player.vy);
+  if (sp > maxV) { player.vx *= maxV / sp; player.vy *= maxV / sp; }
+  // 軸ごとに移動して岩・壁を判定
+  let nx = player.x + player.vx * dt;
+  nx = Math.max(P_R, Math.min(W - P_R, nx));
+  const rx = rockAt(nx, player.y, P_R);
+  if (rx) { if (bumpRock(rx, Math.abs(player.vx), Math.hypot(player.vx, player.vy)) && !hitRock(nx, player.y, P_R)) player.x = nx; else player.vx = 0; } else player.x = nx;
+  let ny = player.y + player.vy * dt;
+  ny = Math.max(P_R, Math.min(H - P_R, ny));
+  const ry = rockAt(player.x, ny, P_R);
+  if (ry) { if (bumpRock(ry, Math.abs(player.vy), Math.hypot(player.vx, player.vy)) && !hitRock(player.x, ny, P_R)) player.y = ny; else player.vy = 0; } else player.y = ny;
+  if (sp > 8) player.face = Math.atan2(player.vy, player.vx);
+  // バナナ取得と再出現
+  for (const b of bananas) {
+    if (b.active) { if (Math.hypot(b.x - player.x, b.y - player.y) < P_R + B_R) pickBanana(b); }
+    else { b.respawn -= dt; if (b.respawn <= 0) spawn(b); }
+  }
+  rocks.forEach(r => { r.cd -= dt; r.shake -= dt; });
+  for (let i = rockRespawn.length - 1; i >= 0; i--) { // 壊れた岩の再出現
+    rockRespawn[i] -= dt;
+    if (rockRespawn[i] <= 0 && addRock()) rockRespawn.splice(i, 1);
+  }
+  fx.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; });
+  texts.forEach(t => { t.y -= 30 * dt; t.life -= dt; });
+  fx = fx.filter(p => p.life > 0); texts = texts.filter(t => t.life > 0);
+}
+
+// ===== 描画 =====
+function drawBanana(b, now) {
+  const bob = Math.sin(now * 3 + b.ph) * 1.5;
+  ctx.save(); ctx.translate(b.x, b.y + bob); ctx.rotate(b.ang);
+  ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(1, 11 - bob, 11, 4, 0, 0, 6.28); ctx.fill(); // 影
+  const gold = b.type === 'gold', rot = b.type === 'rotten';
+  if (gold) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 12; }
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = rot ? '#7a7a2a' : gold ? '#ffc400' : '#f7d63a'; ctx.lineWidth = 9;
+  ctx.beginPath(); ctx.arc(0, -4, 12, .3, Math.PI - .3); ctx.stroke(); // 本体
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = rot ? '#a0a04a' : '#fffbc0'; ctx.lineWidth = 2.5; // ハイライト
+  ctx.beginPath(); ctx.arc(0, -6, 11, .6, 1.6); ctx.stroke();
+  ctx.fillStyle = '#5a3a10'; ctx.beginPath(); ctx.arc(-11, 0, 2.5, 0, 6.28); ctx.arc(11, 0, 2.5, 0, 6.28); ctx.fill(); // ヘタ
+  if (rot) { ctx.fillStyle = '#3e3a10'; [[-4,8],[3,9],[7,5]].forEach(([x,y]) => { ctx.beginPath(); ctx.arc(x, y, 1.8, 0, 6.28); ctx.fill(); }); }
+  ctx.restore();
+}
+function drawRock(rc) {
+  const r = {x: rc.x + (rc.shake > 0 ? Math.sin(rc.shake * 80) * 2 : 0), y: rc.y, w: rc.w, h: rc.h, hp: rc.hp, max: rc.max, type: rc.type, seed: rc.seed}; // 被弾直後は小さく揺らす
+  ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.beginPath(); ctx.roundRect(r.x + 5, r.y + 6, r.w, r.h, 12); ctx.fill(); // 影
+  const g = ctx.createLinearGradient(r.x, r.y, r.x + r.w, r.y + r.h);
+  g.addColorStop(0, r.type === 'hard' ? '#7d8aa0' : '#d9c9a3'); g.addColorStop(1, r.type === 'hard' ? '#2f3a4c' : '#a69272'); // hard=青黒い石、soft=茶色い石
+  ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 12); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.roundRect(r.x + 5, r.y + 4, r.w * .5, r.h * .25, 6); ctx.fill(); // ハイライト
+  // ヒビ: 耐久が減るほど増える(岩の内側にクリップして描画)
+  const dmg = 1 - r.hp / r.max, cracks = dmg === 0 ? 0 : dmg < .34 ? 2 : dmg < .67 ? 4 : 6; // 損傷率でヒビの本数が増える
+  if (cracks > 0) {
+    ctx.save(); ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 12); ctx.clip();
+    ctx.strokeStyle = 'rgba(30,30,28,.85)'; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+    const cx = r.x + r.w * (.35 + r.seed * .3), cy = r.y + r.h * .45;
+    const paths = [[[0,0],[-.18,.3],[-.1,.55]], [[0,0],[.2,-.25],[.12,-.5]], [[0,0],[.28,.2],[.4,.12]], [[0,0],[-.25,-.15],[-.4,-.3]], [[0,0],[-.28,.12],[-.45,.2]], [[0,0],[.05,.3],[.2,.5]]];
+    paths.slice(0, cracks).forEach(p => {
+      ctx.beginPath();
+      p.forEach(([a, b], i) => { const px = cx + a * r.w * .9, py = cy + b * r.h; if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); });
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+}
+function drawMonkey(now) {
+  const {x, y, face} = player, fx_ = Math.cos(face) * 2.5, fy_ = Math.sin(face) * 2.5;
+  ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(x + 3, y + 8, 17, 12, 0, 0, 6.28); ctx.fill(); // 影
+  // しっぽ(進行方向の逆側)
+  ctx.strokeStyle = '#6b4423'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x - Math.cos(face) * 13, y - Math.sin(face) * 13);
+  ctx.quadraticCurveTo(x - Math.cos(face + 1) * 28, y - Math.sin(face + 1) * 28, x - Math.cos(face - .4) * 30, y - Math.sin(face - .4) * 30); ctx.stroke();
+  ctx.fillStyle = '#8b5a2b'; ctx.beginPath(); ctx.arc(x, y, P_R, 0, 6.28); ctx.fill(); // 体
+  ctx.fillStyle = '#6b4423'; [-1, 1].forEach(s => { ctx.beginPath(); ctx.arc(x + s * 15, y - 4, 6, 0, 6.28); ctx.fill(); }); // 耳
+  ctx.fillStyle = '#f0cfa0'; [-1, 1].forEach(s => { ctx.beginPath(); ctx.arc(x + s * 15, y - 4, 3, 0, 6.28); ctx.fill(); });
+  ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.beginPath(); ctx.arc(x - 5, y - 8, 6, 0, 6.28); ctx.fill(); // 体のハイライト
+  ctx.fillStyle = '#f0cfa0'; ctx.beginPath(); ctx.ellipse(x + fx_, y + 2 + fy_, 11, 9, 0, 0, 6.28); ctx.fill(); // 顔
+  ctx.fillStyle = '#222'; [-4.5, 4.5].forEach(s => { ctx.beginPath(); ctx.arc(x + s + fx_ * 1.2, y - 1 + fy_ * 1.2, 1.9, 0, 6.28); ctx.fill(); }); // 目
+  ctx.beginPath(); ctx.arc(x + fx_ * 1.2, y + 5 + fy_ * 1.2, 1.2, 0, 6.28); ctx.fill();
+  if (speedMode !== 0) { ctx.strokeStyle = speedMode > 0 ? 'rgba(255,215,0,.9)' : 'rgba(120,160,40,.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, P_R + 5 + Math.sin(now * 12) * 1.5, 0, 6.28); ctx.stroke(); }
+}
+function draw(now) {
+  // 草原背景
+  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#79b95a'); g.addColorStop(1, '#5a9a42');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(40,90,30,.45)'; ctx.lineWidth = 1.5;
+  (grass || []).forEach(t => { ctx.beginPath(); ctx.moveTo(t.x, t.y); ctx.lineTo(t.x - 2, t.y - t.s); ctx.moveTo(t.x, t.y); ctx.lineTo(t.x + 2, t.y - t.s); ctx.stroke(); });
+  if (state === 'ready' || !rocks) return;
+  rocks.forEach(drawRock);
+  bananas.forEach(b => b.active && drawBanana(b, now / 1000));
+  drawMonkey(now / 1000);
+  fx.forEach(p => { ctx.globalAlpha = Math.max(0, p.life * 2); ctx.fillStyle = p.col; ctx.beginPath(); ctx.arc(p.x, p.y, 2.5, 0, 6.28); ctx.fill(); });
+  ctx.globalAlpha = 1; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center';
+  texts.forEach(t => { ctx.globalAlpha = Math.min(1, t.life * 2); ctx.fillStyle = t.col; ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeText(t.t, t.x, t.y - 14); ctx.fillText(t.t, t.x, t.y - 14); });
+  ctx.globalAlpha = 1;
+  // 緊迫演出: 20秒未満で赤く暗く、10秒未満でさらに強く(点滅)
+  if (state === 'playing' && timeLeft < 20) {
+    const urgent = timeLeft < 10, a = urgent ? .22 + .08 * Math.sin(now / 120) : .12;
+    ctx.fillStyle = `rgba(150,0,0,${a})`; ctx.fillRect(0, 0, W, H);
+    const v = ctx.createRadialGradient(W / 2, H / 2, H * .3, W / 2, H / 2, H * .75);
+    v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, `rgba(0,0,0,${urgent ? .6 : .3})`);
+    ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  }
+}
+
+// ===== HUD・画面遷移 =====
+function hud() {
+  $('tTime').textContent = Math.ceil(timeLeft);
+  $('tScore').textContent = score;
+  $('tCombo').textContent = combo;
+}
+function getHigh() { try { return +localStorage.getItem('monkeyBananaHigh') || 0; } catch (e) { return 0; } }
+function endGame() {
+  state = 'over'; sfx.end();
+  const prev = getHigh(), isNew = score > prev, high = Math.max(prev, score);
+  try { localStorage.setItem('monkeyBananaHigh', high); } catch (e) {}
+  const text = `おサルのバーチャルバナナ集め で ${score}点 獲得した！ #おサルのバーチャルバナナ集め`;
+  // http(s)で開かれている時だけ、ゲームのURLもツイートに含める(Xがカード画像を表示できる)
+  const pageUrl = /^https?:/.test(location.protocol) ? '&url=' + encodeURIComponent(location.origin + location.pathname) : '';
+  const url = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text) + pageUrl;
+  overlay.innerHTML = `<h1>タイムアップ！</h1><p>最終スコア<br><b style="font-size:36px;color:var(--accent)">${score}</b>点${isNew ? '<br>🎉 ハイスコア更新！' : ''}</p><p>ハイスコア: ${high}点</p>` +
+    `<button class="btn" id="again">もう一度遊ぶ</button><a class="btn tw" href="${url}" target="_blank" rel="noopener">結果をツイート</a>`;
+  overlay.classList.remove('hide');
+  $('again').onclick = newGame;
+}
+function showStart() {
+  overlay.innerHTML = `<h1>🐒 おサルの<br>バーチャルバナナ集め</h1><p>🍌 +10点　✨金バナナ +30点＆加速<br>🟤 腐りバナナ −5点＆減速<br>2.5秒以内に連続で取るとコンボ！<br>茶色い石はもろく、青黒い石はカタい！<br>全速力でぶつかると壊しやすい</p><p>ハイスコア: ${getHigh()}点</p><button class="btn" id="start">スタート</button>`;
+  $('start').onclick = newGame;
+}
+
+// ===== メインループ =====
+function loop(now) {
+  if (state === 'playing') { const dt = Math.min(.05, (now - last) / 1000); last = now; update(dt); hud(); }
+  draw(now);
+  requestAnimationFrame(loop);
+}
+resize(); showStart(); draw(0); requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
